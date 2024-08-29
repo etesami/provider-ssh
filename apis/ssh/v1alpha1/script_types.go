@@ -25,14 +25,25 @@ import (
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 )
 
+type Variable struct {
+	// Name of the variable
+	Name string `json:"name"`
+	// Value of the variable
+	Value string `json:"value"`
+}
+
 // ScriptParameters are the configurable fields of a Script.
 type ScriptParameters struct {
-	ConfigurableField string `json:"configurableField"`
+	Vars        []Variable `json:"variables,omitempty"`
+	Script      string     `json:"script"`
+	SudoEnabled bool       `json:"sudoEnabled,omitempty"`
 }
 
 // ScriptObservation are the observable fields of a Script.
 type ScriptObservation struct {
-	ObservableField string `json:"observableField,omitempty"`
+	StandardOutput string `json:"stdout"`
+	StandardError  string `json:"stderr"`
+	StatusCode     int    `json:"statusCode"`
 }
 
 // A ScriptSpec defines the desired state of a Script.
