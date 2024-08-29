@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: scripts.ssh.ssh.crossplane.io
+  name: scripts.ssh.crossplane.io
 spec:
-  group: ssh.ssh.crossplane.io
+  group: ssh.crossplane.io
   names:
     categories:
     - crossplane
