@@ -1,38 +1,17 @@
-# provider-template
+# provider-ssh
 
-`provider-template` is a minimal [Crossplane](https://crossplane.io/) Provider
-that is meant to be used as a template for implementing new Providers. It comes
-with the following features that are meant to be refactored:
+The `provider-ssh` is a Crossplane provider designed for executing scripts on a remote machine over SSH.
 
-- A `ProviderConfig` type that only points to a credentials `Secret`.
-- A `MyType` resource type that serves as an example managed resource.
-- A managed resource controller that reconciles `MyType` objects and simply
-  prints their configuration in its `Observe` method.
+The SSH provider adds support for `Script` resources with a `managementPolicy` of `Observe`. This means `Script` resources do not manage any external resources, instead they are used only to execute scripts on and fetch data from an external source.
 
-## Developing
+The `provider-ssh` requires:
 
-1. Use this repository as a template to create a new one.
-1. Run `make submodules` to initialize the "build" Make submodule we use for CI/CD.
-1. Rename the provider by running the following command:
-```shell
-  export provider_name=MyProvider # Camel case, e.g. GitHub
-  make provider.prepare provider=${provider_name}
-```
-4. Add your new type by running the following command:
-```shell
-  export group=sample # lower case e.g. core, cache, database, storage, etc.
-  export type=MyType # Camel casee.g. Bucket, Database, CacheCluster, etc.
-  make provider.addtype provider=${provider_name} group=${group} kind=${type}
-```
-5. Replace the *sample* group with your new group in apis/{provider}.go
-5. Replace the *mytype* type with your new type in internal/controller/{provider}.go
-5. Replace the default controller and ProviderConfig implementations with your own
-5. Run `make reviewable` to run code generation, linters, and tests.
-5. Run `make build` to build the provider.
+- A `ProviderConfig` type that references a credentials `Secret`, which contains the remote machine's `IP`, `Port`, and `Username`  and `Private Key`.
+- A `Script` resource type that includes the script to be executed and any variables 
+with their corresponding values. These variables will be replaced with actual values 
+before the script is sent to the remote machine.
+- A managed resource controller that reconciles `Script` objects, by connecting 
+to the target machine, executing the scripts, and writing the output (`stdout` and `stderr`) 
+back to the respective status fields of the object.
 
-Refer to Crossplane's [CONTRIBUTING.md] file for more information on how the
-Crossplane community prefers to work. The [Provider Development][provider-dev]
-guide may also be of use.
-
-[CONTRIBUTING.md]: https://github.com/crossplane/crossplane/blob/master/CONTRIBUTING.md
-[provider-dev]: https://github.com/crossplane/crossplane/blob/master/contributing/guide-provider-development.md
+> Feel free to submit any issues you encounter.
