@@ -73,7 +73,11 @@ spec:
               forProvider:
                 description: ScriptParameters are the configurable fields of a Script.
                 properties:
-                  script:
+                  cleanupScript:
+                    type: string
+                  initScript:
+                    type: string
+                  statusCheckScript:
                     type: string
                   sudoEnabled:
                     type: boolean
@@ -92,7 +96,7 @@ spec:
                       type: object
                     type: array
                 required:
-                - script
+                - initScript
                 type: object
               managementPolicies:
                 default:

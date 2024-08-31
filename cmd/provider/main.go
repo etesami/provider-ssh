@@ -63,7 +63,6 @@ func main() {
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
 	zl := zap.New(zap.UseDevMode(*debug))
-	log := logging.NewLogrLogger(zl.WithName("provider-ssh"))
 	if *debug {
 		// custom format logger only for development
 		// Ensure the directory exists
@@ -93,6 +92,7 @@ func main() {
 		// logger when we're running in debug mode.
 		ctrl.SetLogger(zl)
 	}
+	log := logging.NewLogrLogger(zl.WithName("provider-ssh"))
 
 	cfg, err := ctrl.GetConfig()
 	kingpin.FatalIfError(err, "Cannot get API server rest config")
