@@ -4,18 +4,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: mytypes.sample.template.crossplane.io
+  name: scripts.ssh.crossplane.io
 spec:
-  group: sample.template.crossplane.io
+  group: ssh.crossplane.io
   names:
     categories:
     - crossplane
     - managed
-    - template
-    kind: MyType
-    listKind: MyTypeList
-    plural: mytypes
-    singular: mytype
+    - ssh
+    kind: Script
+    listKind: ScriptList
+    plural: scripts
+    singular: script
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -34,7 +34,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: A MyType is an example API type.
+        description: A Script is an example API type.
         properties:
           apiVersion:
             description: |-
@@ -54,7 +54,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: A MyTypeSpec defines the desired state of a MyType.
+            description: A ScriptSpec defines the desired state of a Script.
             properties:
               deletionPolicy:
                 default: Delete
@@ -71,12 +71,32 @@ spec:
                 - Delete
                 type: string
               forProvider:
-                description: MyTypeParameters are the configurable fields of a MyType.
+                description: ScriptParameters are the configurable fields of a Script.
                 properties:
-                  configurableField:
+                  cleanupScript:
                     type: string
+                  initScript:
+                    type: string
+                  statusCheckScript:
+                    type: string
+                  sudoEnabled:
+                    type: boolean
+                  variables:
+                    items:
+                      properties:
+                        name:
+                          description: Name of the variable
+                          type: string
+                        value:
+                          description: Value of the variable
+                          type: string
+                      required:
+                      - name
+                      - value
+                      type: object
+                    type: array
                 required:
-                - configurableField
+                - initScript
                 type: object
               managementPolicies:
                 default:
@@ -246,17 +266,21 @@ spec:
             - forProvider
             type: object
           status:
-            description: A MyTypeStatus represents the observed state of a MyType.
+            description: A ScriptStatus represents the observed state of a Script.
             properties:
               atProvider:
-                description: MyTypeObservation are the observable fields of a MyType.
+                description: ScriptObservation are the observable fields of a Script.
                 properties:
-                  configurableField:
+                  statusCode:
+                    type: integer
+                  stderr:
                     type: string
-                  observableField:
+                  stdout:
                     type: string
                 required:
-                - configurableField
+                - statusCode
+                - stderr
+                - stdout
                 type: object
               conditions:
                 description: Conditions of the resource.
