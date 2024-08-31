@@ -1,0 +1,37 @@
+apiVersion: ssh.crossplane.io/v1alpha1
+kind: Script
+metadata:
+  name: sample-script
+spec:
+  forProvider:
+    variables:
+      - name: VPN_SERVER_URL
+        value: "199.199.199.10"
+    initScript: |
+      touch /tmp/new_file.txt
+      # echo current date and time to the file
+      echo {{VPN_SERVER_URL}} >> /tmp/new_file.txt
+      date >> /tmp/new_file.txt
+      echo "--- --- --- ---" >> /tmp/new_file.txt
+      cat /tmp/new_file.txt
+    statusCheckScript: |
+      # check if the file exists
+      if [ -f /tmp/new_file.txt ]; then
+        echo "File exists"
+        # check if the file has the correct content
+        if grep -q {{VPN_SERVER_URL}} /tmp/new_file.txt; then
+          echo "File has the correct content"
+          exit 0
+        else
+          echo "File does not have the correct content"
+          exit 1
+        fi
+      else
+        echo "File does not exist"
+        exit 1
+      fi
+    cleanupScript: |
+      rm /tmp/new_file.txt
+    sudoEnabled: false
+  providerConfigRef:
+    name: providerssh-config
