@@ -33,7 +33,7 @@ kind: Provider
 metadata:
   name: provider-ssh
 spec:
-  package: docker.io/etesami/provider-ssh:v1.0.0
+  package: docker.io/etesami/provider-ssh:latest
 ```
 
 ### ProviderConfig

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -62,24 +63,37 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) { // no
 
 	var knownHostsCallback ssh.HostKeyCallback
 	if kc.KnownHosts != "" {
-		if knownHostsCallback, err = knownhosts.New(kc.KnownHosts); err != nil {
+		logger.Info("Using known hosts")
+		tempFile, err := os.CreateTemp("", "tempfile")
+		if err != nil {
+			return nil, errors.Wrap(err, "Failed to create temp file to parse known hosts")
+		}
+		defer os.Remove(tempFile.Name()) // Clean up the temp file after use
+
+		// Write the content to the temporary file
+		if _, err := tempFile.Write([]byte(kc.KnownHosts)); err != nil {
+			return nil, errors.Wrap(err, "Failed to write known hosts to temp file")
+		}
+		defer tempFile.Close()
+		if knownHostsCallback, err = knownhosts.New(tempFile.Name()); err != nil {
 			return nil, errors.Wrap(err, "Failed to create known hosts callback")
 		}
 	} else {
 		// If knownHosts is not provided, use InsecureIgnoreHostKey
 		// This is not recommended for production use
 		// nolint: gosec
+		logger.Info("Using InsecureIgnoreHostKey, no known hosts provided")
 		knownHostsCallback = ssh.InsecureIgnoreHostKey()
 	}
 	config.HostKeyCallback = knownHostsCallback
 
 	switch {
 	case kc.PrivateKey != "":
+		logger.Info("Using private key")
 		privateKeyBytes, err := base64.StdEncoding.DecodeString(kc.PrivateKey)
 		if err != nil {
 			logger.Error(err, "Error decoding base64 private key")
 		}
-
 		signer, err := ssh.ParsePrivateKey(privateKeyBytes)
 		if err != nil {
 			logger.Error(err, "Failed to parse private key")
@@ -99,7 +113,7 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) { // no
 	// Maximum number of attempts
 	maxAttempts := 3
 	// Delay between retries
-	delayBetweenRetries := 2 * time.Second
+	delayBetweenRetries := 3 * time.Second
 	remoteHost := fmt.Sprintf("%s:%s", kc.RemoteHostIP, kc.RemoteHostPort)
 
 	var client *ssh.Client
