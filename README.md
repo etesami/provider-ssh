@@ -24,6 +24,20 @@ back to the respective status fields of the object.
 
 ## Getting Started 
 
+### Installation
+
+You can run the `provider-ssh` locally or install it from an xpkg file. To install the provider use:
+```yaml
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-ssh
+spec:
+  package: docker.io/etesami/provider-ssh:v1.0.0
+```
+
+### ProviderConfig
+
 To begin, you'll need to create a `ProviderConfig` and a `Secret`. 
 To initiate a connection to the remote host, either a `password` or `privateKey` is required. 
 The `privateKey` should be provided as a single-line, base64-encoded string. 
