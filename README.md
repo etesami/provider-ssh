@@ -20,7 +20,7 @@ within the scripts before they are sent to the remote machine.
 to the target machine, executing the scripts, and writing the output (`stdout` and `stderr`) 
 back to the respective status fields of the object.
 
-![image](./provider-ssh-crossplane-diagram.png)
+![image](./provider-ssh-crossplane-flowchart.jpg)
 
 ## Getting Started 
 
@@ -89,14 +89,20 @@ spec:
 
 ### Script 
 
-A `Script` object supports the following:
+A `Script` object supports the following types of scripts:
 
-- `initScript`: This script is executed for the first time and whenever the resource is detected as not existing,
-or the `statusCheckScript` returns an error.
-- `statusCheckScript`: This script is executed to check the status after running the `initScript`.
+- `initScript`: This script is executed the first time and whenever the resource is detected as non-existent.
+- `statusCheckScript`: This script is executed frequently to check the status of the resource. 
+The exit status code should correspond to the following conditions:
+  - `Exit Status Code = 0`: The script executes successfully, and the resource is ready.
+  - `Exit Status Code = 1`: The script fails, and the resource is not ready. The `statusCheckScript` 
+  will be executed again when the request is requeued.
+  - `Exit Status Code = 100`: The resource does not exist on the remote machine. The `initScript` will be executed.
+  - `Exit Status Code = Any Other Value`: The resource is not ready yet, and the `statusCheckScript` will 
+  be executed again.
+- `updateScript`: This script is executed based on the exit status code of the `statusCheckScript`.
 - `cleanupScript`: This script is executed when the managed resource is deleted.
 
-When any of these scripts are executed, the `statusCode` field reflects the returned status code of the script execution. 
 The `stdout` and `stderr` fields capture the standard output and standard error, 
 respectively, of the last execution of the `statusCheckScript`.
 
@@ -118,23 +124,45 @@ spec:
       echo {{VPN_SERVER_URL}} >> /tmp/new_file.txt
       date >> /tmp/new_file.txt
       echo "--- --- --- ---" >> /tmp/new_file.txt
-      cat /tmp/new_file.txt
+
+      # Create the script file
+      cat << 'EOF' > /tmp/prolonged-execution-script.sh
+      #!/bin/bash
+
+      HOST_ACCESSIBLE=false
+      HOST=google.ca
+
+      while [ "$HOST_ACCESSIBLE" = false ]; do
+        ping -c 1 "$HOST" > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+          HOST_ACCESSIBLE=true
+          echo "INFO: $HOST is accessible. Attempt $RETRY_COUNT"
+        else
+          echo "INFO: Attempt $(($RETRY_COUNT + 1)): $HOST is not accessible. Retrying..."
+          RETRY_COUNT=$((RETRY_COUNT + 1))
+          sleep 5
+        fi
+      done
+      EOF
+
+      chmod +x /tmp/prolonged-execution-script.sh
+
+      # Run inside screen to ensure the complete execution of the script
+      SESSION_NAME="my-script"
+      screen -dmS $SESSION_NAME
+
+      screen -S $SESSION_NAME -X stuff "bash /tmp/prolonged-execution-script.sh^M"
+      # The exit status code has no effect.
+      # The statusCheck script will determine if the script has executed successfully.
     statusCheckScript: |
       # check if the file exists
-      if [ -f /tmp/new_file.txt ]; then
-        echo "File exists"
-        # check if the file has the correct content
-        if grep -q {{VPN_SERVER_URL}} /tmp/new_file.txt; then
-          echo "File has the correct content"
-          exit 0
-        else
-          echo "File does not have the correct content"
-          exit 1
-        fi
-      else
+      if [ ! -f /tmp/new_file.txt ]; then
         echo "File does not exist"
-        exit 1
+        exit 105 # Custom exit code.
+        # TODO: The exit status code should be made available to updateScript
+        # so that appropriate actions can be taken.
       fi
+    updateScript: ""
     cleanupScript: |
       rm /tmp/new_file.txt
     sudoEnabled: false

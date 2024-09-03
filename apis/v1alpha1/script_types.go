@@ -35,8 +35,9 @@ type Variable struct {
 // ScriptParameters are the configurable fields of a Script.
 type ScriptParameters struct {
 	Variables         []Variable `json:"variables,omitempty"`
-	InitScript        string     `json:"initScript"`
-	StatusCheckScript string     `json:"statusCheckScript,omitempty"`
+	InitScript        string     `json:"initScript,omitempty"`
+	StatusCheckScript string     `json:"statusCheckScript"`
+	UpdateScript      string     `json:"updateScript,omitempty"`
 	CleanupScript     string     `json:"cleanupScript,omitempty"`
 	SudoEnabled       bool       `json:"sudoEnabled,omitempty"`
 }

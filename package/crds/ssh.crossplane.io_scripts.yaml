@@ -81,6 +81,8 @@ spec:
                     type: string
                   sudoEnabled:
                     type: boolean
+                  updateScript:
+                    type: string
                   variables:
                     items:
                       properties:
@@ -96,7 +98,7 @@ spec:
                       type: object
                     type: array
                 required:
-                - initScript
+                - statusCheckScript
                 type: object
               managementPolicies:
                 default:

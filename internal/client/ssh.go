@@ -63,7 +63,6 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) { // no
 
 	var knownHostsCallback ssh.HostKeyCallback
 	if kc.KnownHosts != "" {
-		logger.Info("Using known hosts")
 		tempFile, err := os.CreateTemp("", "tempfile")
 		if err != nil {
 			return nil, errors.Wrap(err, "Failed to create temp file to parse known hosts")
@@ -89,7 +88,6 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) { // no
 
 	switch {
 	case kc.PrivateKey != "":
-		logger.Info("Using private key")
 		privateKeyBytes, err := base64.StdEncoding.DecodeString(kc.PrivateKey)
 		if err != nil {
 			logger.Error(err, "Error decoding base64 private key")

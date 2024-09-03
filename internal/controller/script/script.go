@@ -50,13 +50,6 @@ const (
 	errNewClient = "cannot create new Service"
 )
 
-// // A NoOpService does nothing.
-// type NoOpService struct{}
-
-// var (
-// 	newNoOpService = func(_ []byte) (interface{}, error) { return &NoOpService{}, nil }
-// )
-
 // Setup adds a controller that reconciles Script managed resources.
 func Setup(mgr ctrl.Manager, o controller.Options) error {
 	name := managed.ControllerName(apisv1alpha1.ScriptGroupKind)
@@ -86,8 +79,6 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 		Complete(ratelimiter.NewReconciler(name, r, o.GlobalRateLimiter))
 }
 
-// A connector is expected to produce an ExternalClient when its Connect method
-// is called.
 type connector struct {
 	kube         client.Client
 	usage        resource.Tracker
@@ -164,17 +155,36 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 			// init script and the target is not ready yet, or the init script is not
 			// executed at all. In both cases, we request to run init script again
 			// by returning ResourceExists: false
-			logger.Info(fmt.Sprintf("[%s] Observing failed. File does not exist or is not ready yet.", mg.GetName()))
+			var exitStatus int
+			if exitErr, ok := err.(*ssh.ExitError); ok {
+				exitStatus = exitErr.ExitStatus()
+			} else {
+				exitStatus = 1
+				logger.Info(fmt.Sprintf("[%s] Unable to detect exit code", mg.GetName()))
+			}
+
+			logger.Info(fmt.Sprintf("[%s] Observing failed. Exit code: %d", mg.GetName(), exitStatus))
 			cr.Status.AtProvider.Stdout = stdout
 			cr.Status.AtProvider.Stderr = stderr
-			cr.Status.AtProvider.StatusCode = 1
+			cr.Status.AtProvider.StatusCode = exitStatus
 
-			// We don't update. By returning ResourceExists: false, the managed resource
-			// reconciler will call Create again and the script will be executed again.
-			// Please note we don't return error here, because the create function will not
-			// be called if the observe function returns an error.
-			// TODO: Ensure this logic is the best approach here.
-			return managed.ExternalObservation{ResourceExists: false, ResourceUpToDate: false}, nil
+			// if the exit code is 1, it means the script failed. This type of failure
+			// is not recoverable automatically, so we set the status to ReconcileError.
+			if exitStatus == 1 {
+				cr.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Script failed with exit code 1.")))
+				return managed.ExternalObservation{}, errors.Wrap(err, "Script failed with exit code 1.")
+			}
+
+			// If the exit code is 100, it means the resources does not exist yet.
+			if exitStatus == 100 {
+				return managed.ExternalObservation{ResourceExists: false}, nil
+			}
+
+			// If the exit code is a custom applecation-specific code, it means the script
+			// failed but the failure may be recoverable. The recovery should be handled by
+			// the update script. We don't return error here, as the update does not get called
+			// instead we update resource status fields with returned stdout, stderr and exit code.
+			return managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, nil
 		}
 
 		logger.Info(fmt.Sprintf("[%s] Observing was [okay]. Update the status.", mg.GetName()))
@@ -187,20 +197,9 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	logger.Info(fmt.Sprintf("[%s] Observing, no status check script.", mg.GetName()))
 
-	// If the StatusCheckScript is not set, there is nothing to run.
 	return managed.ExternalObservation{
-		// Return false when the external resource does not exist. This lets
-		// the managed resource reconciler know that it needs to call Create to
-		// (re)create the resource, or that it has successfully been deleted.
-		ResourceExists: true,
-
-		// Return false when the external resource exists, but it not up to date
-		// with the desired managed resource state. This lets the managed
-		// resource reconciler know that it needs to call Update.
-		ResourceUpToDate: true,
-
-		// Return any details that may be required to connect to the external
-		// resource. These will be stored as the connection secret.
+		ResourceExists:    true,
+		ResourceUpToDate:  true,
 		ConnectionDetails: managed.ConnectionDetails{},
 	}, nil
 }
@@ -214,31 +213,43 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	if cr.Spec.ForProvider.InitScript != "" {
-		// TODO: There may be output for init script, how do we handle it?
 		_, _, err := sshv1alpha1.ExecuteScript(
 			ctx, c.service.(*ssh.Client), cr.Spec.ForProvider.InitScript, cr.Spec.ForProvider.Variables, cr.Spec.ForProvider.SudoEnabled)
 		if err != nil {
 			// If the script fails, it means there is either an issue with the
 			// init script and the target is not ready yet, or the init script is not
-			// executed at all.
-			cr.SetConditions(xpv1.Unavailable())
+			// executed at all. By returning error here, the reconciler will not proceed,
+			// and user intervention is required.
+			cr.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Init Script failed.")))
 			return managed.ExternalCreation{}, err
-		} else {
-			cr.Status.AtProvider.StatusCode = 0
 		}
 	}
 	return managed.ExternalCreation{
-		// Optionally return any details that may be required to connect to the
-		// external resource. These will be stored as the connection secret.
 		ConnectionDetails: managed.ConnectionDetails{},
 	}, nil
 }
 
 func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
-	// The function update does not do anything.
+	logger := log.FromContext(ctx).WithName("[UPDATE]")
+	logger.Info(fmt.Sprintf("[%s] Updating resource...", mg.GetName()))
+	cr, ok := mg.(*apisv1alpha1.Script)
+	if !ok {
+		return managed.ExternalUpdate{}, errors.New(errNotScript)
+	}
+
+	if cr.Spec.ForProvider.UpdateScript != "" {
+		_, _, err := sshv1alpha1.ExecuteScript(
+			ctx, c.service.(*ssh.Client), cr.Spec.ForProvider.UpdateScript, cr.Spec.ForProvider.Variables, cr.Spec.ForProvider.SudoEnabled)
+		if err != nil {
+			// the update script is supposed to return error if the update fails and is not recoverable.
+			// If we return error here, the reconcile will not proceed, and user intervention is required.
+			cr.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Update Script failed.")))
+			return managed.ExternalUpdate{}, err
+		}
+	}
+	// If there is no update script, or the update does not encounter any error, we return success.
+	// and we will observe the resource again to check if the update was successful.
 	return managed.ExternalUpdate{
-		// Optionally return any details that may be required to connect to the
-		// external resource. These will be stored as the connection secret.
 		ConnectionDetails: managed.ConnectionDetails{},
 	}, nil
 }
