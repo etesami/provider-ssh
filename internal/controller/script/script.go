@@ -107,6 +107,13 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errGetPC)
 	}
 
+	// if the resource is being deleted, we just return
+	cond := cr.GetCondition(xpv1.Deleting().Type)
+	if cond.Type == xpv1.TypeReady && cond.Status == "False" && cond.Reason == xpv1.ReasonDeleting {
+		logger.Info(fmt.Sprintf("[%s] Resource is being deleted. Skip the connection.", mg.GetName()))
+		return &external{}, nil
+	}
+
 	cd := pc.Spec.Credentials
 	data, err := resource.CommonCredentialExtractor(ctx, cd.Source, c.kube, cd.CommonCredentialSelectors)
 	if err != nil {

@@ -133,7 +133,7 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) { // no
 
 	if err != nil {
 		// Final failure after all attempts
-		logger.Info("All %d attempts to connect to %s failed.\n", maxAttempts, remoteHost)
+		logger.Info(fmt.Sprintf("All %d attempts to connect to %s failed.", maxAttempts, remoteHost))
 		return nil, err
 	}
 
