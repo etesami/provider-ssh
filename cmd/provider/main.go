@@ -48,8 +48,8 @@ import (
 func main() {
 	var (
 		app            = kingpin.New(filepath.Base(os.Args[0]), "SSH support for Crossplane.").DefaultEnvars()
-		debug          = app.Flag("debug", "Run with debug logging.").Short('d').Bool()
-		debugLogDir    = app.Flag("debugOutput", "Debug output directory.").Default("/tmp/provider-ssh").Envar("DEBUG_OUTPUT").String()
+		debug          = app.Flag("debug", "Run with debug logging.").Short('d').Default("true").Bool()
+		debugLogDir    = app.Flag("debugOutput", "Debug output directory.").Default("").Envar("DEBUG_OUTPUT").String()
 		leaderElection = app.Flag("leader-election", "Use leader election for the controller manager.").Short('l').Default("false").OverrideDefaultFromEnvar("LEADER_ELECTION").Bool()
 
 		syncInterval     = app.Flag("sync", "How often all resources will be double-checked for drift from the desired state.").Short('s').Default("1h").Duration()
@@ -65,28 +65,38 @@ func main() {
 	zl := zap.New(zap.UseDevMode(*debug))
 	if *debug {
 		// custom format logger only for development
-		// Ensure the directory exists
-		if err := os.MkdirAll(*debugLogDir, os.ModePerm); err != nil {
-			panic(err)
-		}
-		file, err := os.Create(*debugLogDir + "/debug.log")
-		if err != nil {
-			panic(err)
-		}
-		defer func() {
-			if cerr := file.Close(); cerr != nil {
-				_ = fmt.Errorf("Error closing file: %w", cerr)
+		if *debugLogDir != "" {
+			// Ensure the directory exists
+			if err := os.MkdirAll(*debugLogDir, os.ModePerm); err != nil {
+				panic(err)
 			}
-		}()
-
-		opts := zap.Options{
-			Development: true,
-			EncoderConfigOptions: []zap.EncoderConfigOption{
-				customLoggerFormat(),
-			},
-			DestWriter: file,
+			file, err := os.Create(*debugLogDir + "/debug.log")
+			if err != nil {
+				panic(err)
+			}
+			defer func() {
+				if cerr := file.Close(); cerr != nil {
+					_ = fmt.Errorf("Error closing file: %w", cerr)
+				}
+			}()
+			opts := zap.Options{
+				Development: true,
+				EncoderConfigOptions: []zap.EncoderConfigOption{
+					customLoggerFormat(),
+				},
+				DestWriter: file,
+			}
+			zl = zap.New(zap.UseFlagOptions(&opts))
+		} else {
+			opts := zap.Options{
+				Development: true,
+				EncoderConfigOptions: []zap.EncoderConfigOption{
+					customLoggerFormat(),
+				},
+			}
+			zl = zap.New(zap.UseFlagOptions(&opts))
 		}
-		zl = zap.New(zap.UseFlagOptions(&opts))
+
 		// The controller-runtime runs with a no-op logger by default. It is
 		// *very* verbose even at info level, so we only provide it a real
 		// logger when we're running in debug mode.
