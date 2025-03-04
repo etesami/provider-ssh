@@ -19,6 +19,7 @@ package script
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,6 +49,10 @@ const (
 	errGetCreds     = "cannot get credentials"
 
 	errNewClient = "cannot create new Service"
+)
+
+var (
+	connectionCache = sync.Map{}
 )
 
 // Setup adds a controller that reconciles Script managed resources.
@@ -120,10 +125,37 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errGetCreds)
 	}
 
+	connectionData, err := sshv1alpha1.GetConnectionConfigFromSecret(data)
+	if err == nil {
+		// connection data may exist in the cache
+		// the remoteHost is the key to the connection cache
+		remoteHost := fmt.Sprintf("%s:%s", connectionData.RemoteHostIP, connectionData.RemoteHostPort)
+		if val, exists := connectionCache.Load(remoteHost); exists {
+			logger.Info(fmt.Sprintf("[%s] Connection [%s] exists in cache.", mg.GetName(), remoteHost))
+			client := val.(*ssh.Client)
+			// test the connection
+			_, _, err := sshv1alpha1.ExecuteScript(ctx, client, "echo 'test'", nil, false)
+			if err != nil {
+				logger.Info(fmt.Sprintf("[%s] Connection [%s] is not valid. Creating a new connection.", mg.GetName(), remoteHost))
+				// if the connection is not valid, we remove it from the cache
+				connectionCache.Delete(remoteHost)
+			} else {
+				logger.Info(fmt.Sprintf("[%s] Connection [%s] is valid.", mg.GetName(), remoteHost))
+				return &external{service: client}, nil
+			}
+		}
+	}
+
+	// if the connection data does not exist in the cache, we create a new connection
 	svc, err := c.newServiceFn(ctx, data)
 	if err != nil {
 		return nil, errors.Wrap(err, errNewClient)
 	}
+
+	// if the svc is not nil then we have a valid connection
+	// store the connection in the cache
+	logger.Info(fmt.Sprintf("[%s] Storing [%s:%s] in cache.", mg.GetName(), connectionData.RemoteHostIP, connectionData.RemoteHostPort))
+	connectionCache.Store(fmt.Sprintf("%s:%s", connectionData.RemoteHostIP, connectionData.RemoteHostPort), svc)
 
 	logger.Info(fmt.Sprintf("[%s] Creating connection [okay]", mg.GetName()))
 	return &external{service: svc}, nil
@@ -268,6 +300,10 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	if !ok {
 		return errors.New(errNotScript)
 	}
+
+	// TODO: Before delete need to check if provider config and secret
+	// are still available, if not, we can't run the cleanup script
+	// in this case we just return nil
 
 	if cr.Spec.ForProvider.CleanupScript != "" {
 		_, _, err := sshv1alpha1.ExecuteScript(

@@ -33,18 +33,11 @@ type Config struct {
 	KnownHosts     string `json:"knownHosts,omitempty"`
 }
 
-// NewSSHClient creates a new SSHClient with supplied credentials
-func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) { // nolint: gocyclo
-	logger := log.FromContext(ctx).WithName("[SSHClient]")
+func GetConnectionConfigFromSecret(data []byte) (*Config, error) {
 	kc := Config{}
-	var err error
-
 	if err := json.Unmarshal(data, &kc); err != nil {
 		return nil, errors.Wrap(err, "Cannot parse credentials")
 	}
-
-	config := &ssh.ClientConfig{}
-	config.User = kc.Username
 
 	if kc.Username == "" {
 		return nil, errors.New("Username key not found in the data")
@@ -57,9 +50,24 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) { // no
 	}
 
 	if kc.RemoteHostPort == "" {
-		logger.Info("Remote host port key not found in the data, using default port 22")
+		// Default port 22
 		kc.RemoteHostPort = "22"
 	}
+	return &kc, nil
+}
+
+// NewSSHClient creates a new SSHClient with supplied credentials
+// nolint: gocyclo
+func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) {
+	logger := log.FromContext(ctx).WithName("[SSHClient]")
+	config := &ssh.ClientConfig{}
+
+	var err error
+	kc, err := GetConnectionConfigFromSecret(data)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to get config from bytes")
+	}
+	config.User = kc.Username
 
 	var knownHostsCallback ssh.HostKeyCallback
 	if kc.KnownHosts != "" {
@@ -205,7 +213,7 @@ func ReplaceVariables(script string, vars []v1alpha1.Variable) string {
 	// variables are in the format of {{VAR_NAME}}
 	// we remove the {{ and }} and replace the VAR_NAME with the value
 	for _, v := range vars {
-		script = strings.ReplaceAll(script, "{{"+v.Name+"}}", v.Value)
+		script = strings.ReplaceAll(script, v.Name, v.Value)
 	}
 	return script
 }
