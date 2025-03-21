@@ -133,15 +133,22 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		if val, exists := connectionCache.Load(remoteHost); exists {
 			logger.Info(fmt.Sprintf("[%s] Connection [%s] exists in cache.", mg.GetName(), remoteHost))
 			client := val.(*ssh.Client)
-			// test the connection
-			_, _, err := sshv1alpha1.ExecuteScript(ctx, client, "echo 'test'", nil, false)
-			if err != nil {
-				logger.Info(fmt.Sprintf("[%s] Connection [%s] is not valid. Creating a new connection.", mg.GetName(), remoteHost))
-				// if the connection is not valid, we remove it from the cache
-				connectionCache.Delete(remoteHost)
-			} else {
-				logger.Info(fmt.Sprintf("[%s] Connection [%s] is valid.", mg.GetName(), remoteHost))
-				return &external{service: client}, nil
+			// test the connection a few times before we make a new connection
+			counter := 0
+			MAX_TRIES := 5
+			for counter < MAX_TRIES {
+				_, _, err := sshv1alpha1.ExecuteScript(ctx, client, "echo 'test'", nil, false)
+				if err == nil {
+					logger.Info(fmt.Sprintf("[%s] Connection [%s] is valid.", mg.GetName(), remoteHost))
+					return &external{service: client}, nil
+				}
+				if counter == MAX_TRIES-1 {
+					logger.Error(errors.New(fmt.Sprintf("[%s] Connection [%s] is not valid.", mg.GetName(), remoteHost)), "Removing connection from cache.")
+					// if the connection is not valid, we remove it from the cache
+					client.Close()
+					connectionCache.Delete(remoteHost)
+				}
+				counter++
 			}
 		}
 	}
