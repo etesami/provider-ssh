@@ -317,10 +317,17 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 			ctx, c.service.(*ssh.Client), cr.Spec.ForProvider.CleanupScript, cr.Spec.ForProvider.Variables, cr.Spec.ForProvider.SudoEnabled)
 
 		if err != nil {
-			logger.Info(fmt.Sprintf("[%s] Deleting failed.", mg.GetName()))
+			logger.Info(fmt.Sprintf("[%s] Failed to run clean up script.", mg.GetName()))
+			// in any case we close the connection
+			c.service.(*ssh.Client).Close()
+			logger.Info(fmt.Sprintf("[%s] Connection closed.", mg.GetName()))
 			return err
 		}
 	}
+
+	// in any case we close the connection
+	c.service.(*ssh.Client).Close()
+	logger.Info(fmt.Sprintf("[%s] Connection closed.", mg.GetName()))
 
 	return nil
 }
