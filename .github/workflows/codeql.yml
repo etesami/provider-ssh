@@ -3,7 +3,7 @@ name: CodeQL
 on:
   push:
     branches:
-      - main
+      # - main
       - release-*
   workflow_dispatch: {}
 

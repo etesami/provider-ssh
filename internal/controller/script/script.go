@@ -37,9 +37,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	apisv1alpha1 "github.com/crossplane/provider-ssh/apis/v1alpha1"
-	sshv1alpha1 "github.com/crossplane/provider-ssh/internal/client"
-	"github.com/crossplane/provider-ssh/internal/features"
+	apisv1alpha1 "github.com/etesami/provider-ssh/apis/v1alpha1"
+	sshv1alpha1 "github.com/etesami/provider-ssh/internal/client"
+	"github.com/etesami/provider-ssh/internal/features"
 )
 
 const (

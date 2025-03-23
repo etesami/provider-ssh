@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/crossplane/provider-ssh/apis/v1alpha1"
+	"github.com/etesami/provider-ssh/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/pkg/sftp"

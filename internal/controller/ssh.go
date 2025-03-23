@@ -20,8 +20,8 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/controller"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/crossplane/provider-ssh/internal/controller/config"
-	"github.com/crossplane/provider-ssh/internal/controller/script"
+	"github.com/etesami/provider-ssh/internal/controller/config"
+	"github.com/etesami/provider-ssh/internal/controller/script"
 )
 
 // Setup creates all SSH controllers with the supplied logger and adds them to

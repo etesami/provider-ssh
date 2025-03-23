@@ -1,4 +1,4 @@
-module github.com/crossplane/provider-ssh
+module github.com/etesami/provider-ssh
 
 go 1.21
 

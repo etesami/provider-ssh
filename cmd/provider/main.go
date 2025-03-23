@@ -39,10 +39,10 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/ratelimiter"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 
-	"github.com/crossplane/provider-ssh/apis"
-	"github.com/crossplane/provider-ssh/apis/v1alpha1"
-	ssh "github.com/crossplane/provider-ssh/internal/controller"
-	"github.com/crossplane/provider-ssh/internal/features"
+	"github.com/etesami/provider-ssh/apis"
+	"github.com/etesami/provider-ssh/apis/v1alpha1"
+	ssh "github.com/etesami/provider-ssh/internal/controller"
+	"github.com/etesami/provider-ssh/internal/features"
 )
 
 func main() {
