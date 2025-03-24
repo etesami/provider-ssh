@@ -234,6 +234,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		}
 
 		logger.Info(fmt.Sprintf("[%s] Observing was [okay]. Update the status.", mg.GetName()))
+		cr.Status.AtProvider.StatusCode = 0
 		cr.Status.AtProvider.Stdout = stdout
 		cr.Status.AtProvider.Stderr = stderr
 		cr.SetConditions(xpv1.Available())
