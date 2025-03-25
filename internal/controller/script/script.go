@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +36,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"golang.org/x/crypto/ssh"
 
@@ -53,9 +55,11 @@ const (
 )
 
 const (
-	ReasonUnreachable    = "Unreachable"
-	ReasonExecuteError   = "ExecuteError"
-	ReasonExecuteUnknown = "ExecuteUnknown"
+	ConditionScriptExecuted = "ScriptExecuted"
+	ReasonHealthy           = "ExecutedSuccessfully"
+	ReasonUnreachable       = "Unreachable"
+	ReasonExecuteError      = "ExecuteError"
+	ReasonExecuteUnknown    = "ExecuteUnknown"
 )
 
 var (
@@ -144,7 +148,11 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 			counter := 0
 			MAX_TRIES := 5
 			for counter < MAX_TRIES {
-				_, _, err := sshv1alpha1.ExecuteScript(ctx, client, "echo 'test'", nil, false)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				_, _, err := sshv1alpha1.ExecuteScriptWithTimeout(ctx, client, "echo 'test'", nil, false)
+
 				if err == nil {
 					logger.Info(fmt.Sprintf("[%s] Connection [%s] is valid.", mg.GetName(), remoteHost))
 					return &external{service: client}, nil
@@ -163,9 +171,12 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 	// if the connection data does not exist in the cache, we create a new connection
 	svc, err := c.newServiceFn(ctx, data)
 	if err != nil {
-		// Set "Ready" condition to Unavailable
-		mg.SetConditions(notReadyCondition(ReasonUnreachable, err))
-		return nil, errors.Wrap(err, errNewClient)
+		cr.SetConditions(scriptExecutedCondition(corev1.ConditionFalse, ReasonUnreachable, err))
+		cr.SetConditions(xpv1.Unavailable())
+		// We don't return error here, as an error causes the ReconcilerError condition
+		// to be set, which is incorrect, as the object does have all required fields,
+		// but the issue is with the connection, i.e. the resource may not be reachable.
+		return &external{}, nil
 	}
 
 	// if the svc is not nil then we have a valid connection
@@ -199,9 +210,20 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
+	// if the external service is nil, we should not proceed
+	if c.service == nil {
+		logger.Info(fmt.Sprintf("[%s] Observing failed. Connection is nil.", mg.GetName()))
+		// TODO: should we set any fields in the managed.ExternalObservation{}?
+		return managed.ExternalObservation{}, nil
+	}
+
 	// We expect to have the CheckStatusScript
 	if cr.Spec.ForProvider.StatusCheckScript != "" {
-		stdout, stderr, err := sshv1alpha1.ExecuteScript(
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		stdout, stderr, err := sshv1alpha1.ExecuteScriptWithTimeout(
 			ctx, c.service.(*ssh.Client), cr.Spec.ForProvider.StatusCheckScript, cr.Spec.ForProvider.Variables, cr.Spec.ForProvider.SudoEnabled)
 
 		// nolint:nilerr
@@ -213,10 +235,12 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 			var exitStatus int
 			if exitErr, ok := err.(*ssh.ExitError); ok {
 				exitStatus = exitErr.ExitStatus()
-				mg.SetConditions(notReadyCondition(ReasonExecuteError, err))
+				cr.SetConditions(scriptExecutedCondition(corev1.ConditionFalse, ReasonExecuteError, err))
+				cr.SetConditions(xpv1.Unavailable())
 			} else {
 				exitStatus = 1
-				mg.SetConditions(notReadyCondition(ReasonExecuteUnknown, err))
+				cr.SetConditions(scriptExecutedCondition(corev1.ConditionFalse, ReasonExecuteUnknown, err))
+				cr.SetConditions(xpv1.Unavailable())
 				logger.Info(fmt.Sprintf("[%s] Unable to detect exit code", mg.GetName()))
 			}
 
@@ -243,10 +267,10 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 			return managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, nil
 		}
 
-		logger.Info(fmt.Sprintf("[%s] Observing was [okay]. Update the status.", mg.GetName()))
 		cr.Status.AtProvider.StatusCode = 0
 		cr.Status.AtProvider.Stdout = stdout
 		cr.Status.AtProvider.Stderr = stderr
+		cr.SetConditions(scriptExecutedCondition(corev1.ConditionTrue, ReasonHealthy, nil))
 		cr.SetConditions(xpv1.Available())
 		return managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, nil
 
@@ -270,14 +294,20 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	if cr.Spec.ForProvider.InitScript != "" {
-		_, _, err := sshv1alpha1.ExecuteScript(
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		_, _, err := sshv1alpha1.ExecuteScriptWithTimeout(
 			ctx, c.service.(*ssh.Client), cr.Spec.ForProvider.InitScript, cr.Spec.ForProvider.Variables, cr.Spec.ForProvider.SudoEnabled)
+
 		if err != nil {
 			// If the script fails, it means there is either an issue with the
 			// init script and the target is not ready yet, or the init script is not
 			// executed at all. By returning error here, the reconciler will not proceed,
 			// and user intervention is required.
-			cr.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Init Script failed.")))
+			cr.SetConditions(scriptExecutedCondition(corev1.ConditionFalse, ReasonExecuteUnknown, err))
+			cr.SetConditions(xpv1.Unavailable())
 			return managed.ExternalCreation{}, err
 		}
 	}
@@ -295,12 +325,18 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	if cr.Spec.ForProvider.UpdateScript != "" {
-		_, _, err := sshv1alpha1.ExecuteScript(
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		_, _, err := sshv1alpha1.ExecuteScriptWithTimeout(
 			ctx, c.service.(*ssh.Client), cr.Spec.ForProvider.UpdateScript, cr.Spec.ForProvider.Variables, cr.Spec.ForProvider.SudoEnabled)
+
 		if err != nil {
 			// the update script is supposed to return error if the update fails and is not recoverable.
 			// If we return error here, the reconcile will not proceed, and user intervention is required.
-			cr.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Update Script failed.")))
+			cr.SetConditions(scriptExecutedCondition(corev1.ConditionFalse, ReasonExecuteUnknown, err))
+			cr.SetConditions(xpv1.Unavailable())
 			return managed.ExternalUpdate{}, err
 		}
 	}
@@ -324,7 +360,10 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	// in this case we just return nil
 
 	if cr.Spec.ForProvider.CleanupScript != "" {
-		_, _, err := sshv1alpha1.ExecuteScript(
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		_, _, err := sshv1alpha1.ExecuteScriptWithTimeout(
 			ctx, c.service.(*ssh.Client), cr.Spec.ForProvider.CleanupScript, cr.Spec.ForProvider.Variables, cr.Spec.ForProvider.SudoEnabled)
 
 		if err != nil {
@@ -343,13 +382,20 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	return nil
 }
 
-// notReadyCondition returns a condition that indicates the resource is not
+// scriptExecutedCondition returns a condition that indicates the resource is not
 // currently ready with the given reason and error
-func notReadyCondition(reason string, err error) xpv1.Condition {
+func scriptExecutedCondition(status corev1.ConditionStatus, reason string, err error) xpv1.Condition {
+	message := ""
+	if err == nil {
+		message = "Script executed successfully"
+	} else {
+		message = err.Error()
+	}
 	return xpv1.Condition{
-		Type:    xpv1.TypeReady,
-		Status:  corev1.ConditionFalse,
-		Reason:  ReasonUnreachable,
-		Message: err.Error(),
+		Type:               ConditionScriptExecuted,
+		Status:             status,
+		Reason:             xpv1.ConditionReason(reason),
+		Message:            message,
+		LastTransitionTime: metav1.Now(),
 	}
 }

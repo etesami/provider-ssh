@@ -219,6 +219,26 @@ func ReplaceVariables(script string, vars []v1alpha1.Variable) string {
 	return script
 }
 
+func ExecuteScriptWithTimeout(ctx context.Context, client *ssh.Client, sc string, vars []v1alpha1.Variable, suEnabled bool) (string, string, error) {
+	type result struct {
+		stdout string
+		stderr string
+		err    error
+	}
+	resultChan := make(chan result, 1)
+	go func() {
+		stdout, stderr, err := ExecuteScript(ctx, client, sc, vars, suEnabled)
+		resultChan <- result{stdout: stdout, stderr: stderr, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return "", "", errors.New("timeout")
+	case res := <-resultChan:
+		return res.stdout, res.stderr, res.err
+	}
+}
+
 // RunScript function execute the given script over an ssh session
 func ExecuteScript(ctx context.Context, client *ssh.Client, sc string, vars []v1alpha1.Variable, suEnabled bool) (string, string, error) {
 	logger := log.FromContext(ctx).WithName("[RunScript]")
