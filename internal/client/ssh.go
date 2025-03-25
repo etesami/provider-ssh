@@ -119,7 +119,8 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) {
 	// Maximum number of attempts
 	maxAttempts := 3
 	// Delay between retries
-	delayBetweenRetries := 3 * time.Second
+	delayBetweenRetries := 1 * time.Second
+	config.Timeout = 10 * time.Second
 	remoteHost := fmt.Sprintf("%s:%s", kc.RemoteHostIP, kc.RemoteHostPort)
 
 	var client *ssh.Client

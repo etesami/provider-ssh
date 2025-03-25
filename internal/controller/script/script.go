@@ -156,6 +156,10 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 	// if the connection data does not exist in the cache, we create a new connection
 	svc, err := c.newServiceFn(ctx, data)
 	if err != nil {
+		// Set "Sync" condition to ReconcileError
+		mg.SetConditions(xpv1.ReconcileError(errors.Wrap(err, errNewClient)))
+		// Set "Ready" condition to Unavailable
+		mg.SetConditions(xpv1.Unavailable())
 		return nil, errors.Wrap(err, errNewClient)
 	}
 
@@ -204,8 +208,16 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 			var exitStatus int
 			if exitErr, ok := err.(*ssh.ExitError); ok {
 				exitStatus = exitErr.ExitStatus()
+				// Set "Sync" condition to ReconcileError
+				mg.SetConditions(xpv1.ReconcileError(errors.Wrap(err, fmt.Sprintf("Script failed with exit code %d.", exitStatus))))
+				// Set "Ready" condition to Unavailable
+				mg.SetConditions(xpv1.Unavailable())
 			} else {
 				exitStatus = 1
+				// Set "Sync" condition to ReconcileError
+				mg.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Script failed, unable to detect the exit code.")))
+				// Set "Ready" condition to Unavailable
+				mg.SetConditions(xpv1.Unavailable())
 				logger.Info(fmt.Sprintf("[%s] Unable to detect exit code", mg.GetName()))
 			}
 
@@ -217,12 +229,19 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 			// if the exit code is 1, it means the script failed. This type of failure
 			// is not recoverable automatically, so we set the status to ReconcileError.
 			if exitStatus == 1 {
+				// Set "Sync" condition to ReconcileError
 				cr.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Script failed with exit code 1.")))
+				// Set "Ready" condition to Unavailable
+				mg.SetConditions(xpv1.Unavailable())
 				return managed.ExternalObservation{}, errors.Wrap(err, "Script failed with exit code 1.")
 			}
 
 			// If the exit code is 100, it means the resources does not exist yet.
 			if exitStatus == 100 {
+				// Set "Sync" condition to ReconcileError
+				mg.SetConditions(xpv1.ReconcileError(errors.Wrap(err, "Script failed with exit code 100. The resource does not exist?")))
+				// Set "Ready" condition to Unavailable
+				mg.SetConditions(xpv1.Unavailable())
 				return managed.ExternalObservation{ResourceExists: false}, nil
 			}
 
@@ -230,6 +249,10 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 			// failed but the failure may be recoverable. The recovery should be handled by
 			// the update script. We don't return error here, as the update does not get called
 			// instead we update resource status fields with returned stdout, stderr and exit code.
+			// Set "Sync" condition to ReconcileError
+			mg.SetConditions(xpv1.ReconcileError(errors.Wrap(err, fmt.Sprintf("Script failed with exit code %d.", exitStatus))))
+			// Set "Ready" condition to Unavailable
+			mg.SetConditions(xpv1.Unavailable())
 			return managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, nil
 		}
 
