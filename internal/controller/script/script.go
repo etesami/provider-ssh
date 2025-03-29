@@ -98,7 +98,7 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 type connector struct {
 	kube         client.Client
 	usage        resource.Tracker
-	newServiceFn func(ctx context.Context, creds []byte) (*ssh.Client, error)
+	newServiceFn func(ctx context.Context, objName string, creds []byte) (*ssh.Client, error)
 }
 
 // Connect typically produces an ExternalClient by:
@@ -169,13 +169,13 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 	}
 
 	// if the connection data does not exist in the cache, we create a new connection
-	svc, err := c.newServiceFn(ctx, data)
+	svc, err := c.newServiceFn(ctx, mg.GetName(), data)
 	if err != nil {
 		cr.SetConditions(scriptExecutedCondition(corev1.ConditionFalse, ReasonUnreachable, err))
 		cr.SetConditions(xpv1.Unavailable())
 		// We don't return error here, as an error causes the ReconcilerError condition
-		// to be set, which is incorrect, as the object does have all required fields,
-		// but the issue is with the connection, i.e. the resource may not be reachable.
+		// to be set, which is incorrect, as the object may have all required fields,
+		// but the issue perhaps is with the connection, i.e. the resource may not be reachable.
 		return &external{}, nil
 	}
 
@@ -214,7 +214,9 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	if c.service == nil {
 		logger.Info(fmt.Sprintf("[%s] Observing failed. Connection is nil.", mg.GetName()))
 		// TODO: should we set any fields in the managed.ExternalObservation{}?
-		return managed.ExternalObservation{}, nil
+		// I think we should set the ResourceExists to false, otherwise, the create will not be called again
+		// and at this stage we still don't have the conneciton.
+		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
 	// We expect to have the CheckStatusScript

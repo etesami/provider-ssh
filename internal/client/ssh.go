@@ -58,14 +58,14 @@ func GetConnectionConfigFromSecret(data []byte) (*Config, error) {
 
 // NewSSHClient creates a new SSHClient with supplied credentials
 // nolint: gocyclo
-func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) {
+func NewSSHClient(ctx context.Context, objName string, data []byte) (*ssh.Client, error) {
 	logger := log.FromContext(ctx).WithName("[SSHClient]")
 	config := &ssh.ClientConfig{}
 
 	var err error
 	kc, err := GetConnectionConfigFromSecret(data)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to get config from bytes")
+		return nil, fmt.Errorf("[%s] Failed to get config from bytes: %v", objName, err)
 	}
 	config.User = kc.Username
 
@@ -73,17 +73,17 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) {
 	if kc.KnownHosts != "" {
 		tempFile, err := os.CreateTemp("", "tempfile")
 		if err != nil {
-			return nil, errors.Wrap(err, "Failed to create temp file to parse known hosts")
+			return nil, fmt.Errorf("[%s] Failed to create temp file to parse known hosts: %v", objName, err)
 		}
 		defer os.Remove(tempFile.Name()) // Clean up the temp file after use
 
 		// Write the content to the temporary file
 		if _, err := tempFile.Write([]byte(kc.KnownHosts)); err != nil {
-			return nil, errors.Wrap(err, "Failed to write known hosts to temp file")
+			return nil, fmt.Errorf("[%s] Failed to write known hosts to temp file: %v", objName, err)
 		}
 		defer tempFile.Close()
 		if knownHostsCallback, err = knownhosts.New(tempFile.Name()); err != nil {
-			return nil, errors.Wrap(err, "Failed to create known hosts callback")
+			return nil, fmt.Errorf("[%s] Failed to create known hosts callback: %v", objName, err)
 		}
 	} else {
 		// If knownHosts is not provided, use InsecureIgnoreHostKey
@@ -132,7 +132,7 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) {
 			break
 		}
 
-		logger.Info(fmt.Sprintf("Failed to dial: %s with username %s, attempt %d/%d, error: %s", remoteHost, config.User, attempts, maxAttempts, err.Error()))
+		logger.Info(fmt.Sprintf("[%s] Failed to dial: %s with username %s, attempt %d/%d, error: %v", objName, remoteHost, config.User, attempts, maxAttempts, err.Error()))
 
 		// If this is not the last attempt, wait before retrying
 		if attempts < maxAttempts {
@@ -142,8 +142,7 @@ func NewSSHClient(ctx context.Context, data []byte) (*ssh.Client, error) {
 
 	if err != nil {
 		// Final failure after all attempts
-		logger.Info(fmt.Sprintf("All %d attempts to connect to %s failed.", maxAttempts, remoteHost))
-		return nil, err
+		return nil, fmt.Errorf("[%s] All %d attempts to connect to %s failed: %v", objName, maxAttempts, remoteHost, err)
 	}
 
 	return client, nil
