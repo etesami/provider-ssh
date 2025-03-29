@@ -216,7 +216,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		// TODO: should we set any fields in the managed.ExternalObservation{}?
 		// I think we should set the ResourceExists to false, otherwise, the create will not be called again
 		// and at this stage we still don't have the conneciton.
-		return managed.ExternalObservation{ResourceExists: false}, nil
+		return managed.ExternalObservation{}, fmt.Errorf("[%s] observing failed. Connection is nil", mg.GetName())
 	}
 
 	// We expect to have the CheckStatusScript
@@ -293,6 +293,11 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	cr, ok := mg.(*apisv1alpha1.Script)
 	if !ok {
 		return managed.ExternalCreation{}, errors.New(errNotScript)
+	}
+
+	if c.service == nil {
+		logger.Info(fmt.Sprintf("[%s] Creating init script failed. Connection is nil.", mg.GetName()))
+		return managed.ExternalCreation{}, fmt.Errorf("[%s] creating init script failed. Connection is nil", mg.GetName())
 	}
 
 	if cr.Spec.ForProvider.InitScript != "" {
