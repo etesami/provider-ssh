@@ -185,7 +185,7 @@ func mapObservedFields(cr *apiv1a1.SSHTask, facts json.RawMessage) {
 	}
 
 	// Always keep a compact copy of the raw JSON for reference.
-	cr.Status.AtProvider.Observed.Fields["raw"] = compactJSON(facts)
+	// cr.Status.AtProvider.Observed.Fields["raw"] = compactJSON(facts)
 }
 
 func compactJSON(b json.RawMessage) string {
@@ -207,11 +207,11 @@ func strPtr(s string) *string { return &s }
 
 
 // ReplaceVariables replaces the variables in the script with the given values
-func replaceVariables(script string, vars map[string]string) string {
+func replaceVariables(script string, vars []apiv1a1.EnvSpec) string {
 	// variables are in the format of {{VAR_NAME}}
 	// we remove the {{ and }} and replace the VAR_NAME with the value
-	for k, v := range vars {
-		script = strings.ReplaceAll(script, k, v)
+	for _, v := range vars {
+		script = strings.ReplaceAll(script, v.Name, v.Value)
 	}
 	return script
 }
@@ -263,7 +263,7 @@ func defaultExecution(in *apiv1a1.ExecutionSpec) *apiv1a1.ExecutionSpec {
 			Shell:          &defShell,
 			TimeoutSeconds: &defTimeout,
 			MaxAttempts:    &defAttempts,
-			Env:            map[string]string{},
+			Env:            []apiv1a1.EnvSpec{},
 		}
 	}
 	out := *in
@@ -280,7 +280,7 @@ func defaultExecution(in *apiv1a1.ExecutionSpec) *apiv1a1.ExecutionSpec {
 		out.MaxAttempts = &defAttempts
 	}
 	if out.Env == nil {
-		out.Env = map[string]string{}
+		out.Env = []apiv1a1.EnvSpec{}
 	}
 	return &out
 }

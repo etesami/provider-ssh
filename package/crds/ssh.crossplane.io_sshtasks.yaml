@@ -93,10 +93,20 @@ spec:
                     description: execution environment and safety controls.
                     properties:
                       env:
-                        additionalProperties:
-                          type: string
                         description: Environment variables to set for script execution.
-                        type: object
+                        items:
+                          properties:
+                            name:
+                              minLength: 1
+                              type: string
+                            value:
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          - value
+                          type: object
+                        type: array
                       maxAttempts:
                         default: 1
                         description: Max attempts per reconcile (e.g., for transient

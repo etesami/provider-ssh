@@ -101,8 +101,8 @@ func newSSHClient(kc *config) (*ssh.Client, error) {
 	return nil, errors.Wrap(err, msg)
 }
 
-func runScriptWithTimeout(ctx context.Context, client *ssh.Client, sc string, vars map[string]string, sudo bool) (string, string, error) {
-	
+func runScriptWithTimeout(ctx context.Context, client *ssh.Client, sc string, vars []apiv1a1.EnvSpec, sudo bool) (string, string, error) {
+
 	type result struct {
 		stdout string
 		stderr string
@@ -174,7 +174,7 @@ func sendFile(client *ssh.Client, fileContent, remotePath string) error {
 
 
 // RunScript function execute the given script over an ssh session
-func runScript(client *ssh.Client, sc string, vars map[string]string, sudo bool) (string, string, error) {
+func runScript(client *ssh.Client, sc string, vars []apiv1a1.EnvSpec, sudo bool) (string, string, error) {
 
 	// Need to create different session for each command
 	// replace the variables in the script

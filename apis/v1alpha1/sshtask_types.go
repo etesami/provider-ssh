@@ -94,7 +94,14 @@ type ExecutionSpec struct {
 	MaxAttempts *int32 `json:"maxAttempts,omitempty"`
 
 	// Environment variables to set for script execution.
-	Env map[string]string `json:"env,omitempty"`
+	Env []EnvSpec `json:"env,omitempty"`
+}
+
+type EnvSpec struct {
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	Value string `json:"value"`
 }
 
 type FieldMapping struct {
