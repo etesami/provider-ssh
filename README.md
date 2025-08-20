@@ -1,30 +1,16 @@
-# provider-ssh
+# Provider SSH
 
 ## Overview
 
-The `provider-ssh` is a Crossplane provider designed for executing scripts on a remote machine over SSH.
+The `provider-ssh` is a Crossplane provider that reconciles external resources reachable over SSH. It executes user-supplied scripts to converge a remote system to a desired state, exposes observed state from checks, and supports idempotency and drift detection.
 
-The SSH provider introduces support for `Script` resources. The `Script` resources manages execution 
-of a primary script, a status check script, and a cleanup script. The purpose of this provider
-is to retrieve data and apply configurations on a remote machine in accordance to the 
-managed resources.
+### Kinds
 
-The `provider-ssh` requires:
+- `ProviderConfig`: to authenticate/reach the target(s)
+- `SSHTask`: A unit of desired work on a host
 
-- A `ProviderConfig` type that references a credentials `Secret`, which contains a json file with 
-connection details for the remote machine (see an example below).
-- A `Script` resource type that includes the `initScript`, `statusCheckScript` and `cleanupScript`.
-It also contains a list of `variables` and their corresponding values, which should be replaced 
-within the scripts before they are sent to the remote machine.
-- A managed resource controller that reconciles `Script` objects, by connecting 
-to the target machine, executing the scripts, and writing the output (`stdout` and `stderr`) 
-back to the respective status fields of the object.
 
-![image](./provider-ssh-crossplane-flowchart.jpg)
-
-## Getting Started 
-
-### Installation
+## Installation
 
 You can run the `provider-ssh` locally or install it from an xpkg file. To install the provider use:
 ```yaml
@@ -36,7 +22,7 @@ spec:
   package: docker.io/etesami/provider-ssh:latest
 ```
 
-### ProviderConfig
+## ProviderConfig
 
 To begin, you'll need to create a `ProviderConfig` and a `Secret`. 
 To initiate a connection to the remote host, either a `password` or `privateKey` is required. 
@@ -87,86 +73,143 @@ spec:
       key: config
 ```
 
-### Script 
-
-A `Script` object supports the following types of scripts:
-
-- `initScript`: This script is executed the first time and whenever the resource is detected as non-existent.
-- `statusCheckScript`: This script is executed frequently to check the status of the resource. 
-The exit status code should correspond to the following conditions:
-  - `Exit Status Code = 0`: The script executes successfully, and the resource is ready.
-  - `Exit Status Code = 1`: The script fails, and the resource is not ready. The `statusCheckScript` 
-  will be executed again when the request is requeued.
-  - `Exit Status Code = 100`: The resource does not exist on the remote machine. The `initScript` will be executed.
-  - `Exit Status Code = Any Other Value`: The resource is not ready yet, and the `statusCheckScript` will 
-  be executed again.
-- `updateScript`: This script is executed based on the exit status code of the `statusCheckScript`.
-- `cleanupScript`: This script is executed when the managed resource is deleted.
-
-The `stdout` and `stderr` fields capture the standard output and standard error, 
-respectively, of the last execution of the `statusCheckScript`.
-
-Here is a sample `Script` yaml file:
+## SSHTask
 
 ```yaml
 apiVersion: ssh.crossplane.io/v1alpha1
-kind: Script
+kind: SSHTask
 metadata:
-  name: sample-script
+  name: configure-nginx
 spec:
-  forProvider:
-    variables:
-      - name: VPN_SERVER_URL
-        value: "199.199.199.10"
-    initScript: |
-      touch /tmp/new_file.txt
-      # echo current date and time to the file
-      echo {{VPN_SERVER_URL}} >> /tmp/new_file.txt
-      date >> /tmp/new_file.txt
-      echo "--- --- --- ---" >> /tmp/new_file.txt
-
-      # Create the script file
-      cat << 'EOF' > /tmp/prolonged-execution-script.sh
-      #!/bin/bash
-
-      HOST_ACCESSIBLE=false
-      HOST=google.ca
-
-      while [ "$HOST_ACCESSIBLE" = false ]; do
-        ping -c 1 "$HOST" > /dev/null 2>&1
-        if [ $? -eq 0 ]; then
-          HOST_ACCESSIBLE=true
-          echo "INFO: $HOST is accessible. Attempt $RETRY_COUNT"
-        else
-          echo "INFO: Attempt $(($RETRY_COUNT + 1)): $HOST is not accessible. Retrying..."
-          RETRY_COUNT=$((RETRY_COUNT + 1))
-          sleep 5
-        fi
-      done
-      EOF
-
-      chmod +x /tmp/prolonged-execution-script.sh
-
-      # Run inside screen to ensure the complete execution of the script
-      SESSION_NAME="my-script"
-      screen -dmS $SESSION_NAME
-
-      screen -S $SESSION_NAME -X stuff "bash /tmp/prolonged-execution-script.sh^M"
-      # The exit status code has no effect.
-      # The statusCheck script will determine if the script has executed successfully.
-    statusCheckScript: |
-      # check if the file exists
-      if [ ! -f /tmp/new_file.txt ]; then
-        echo "File does not exist"
-        exit 105 # Custom exit code.
-        # TODO: The exit status code should be made available to updateScript
-        # so that appropriate actions can be taken.
-      fi
-    updateScript: ""
-    cleanupScript: |
-      rm /tmp/new_file.txt
-    sudoEnabled: false
   providerConfigRef:
-    name: providerssh-config
+    name: default
+  managementPolicies: ["*"]
+  forProvider:
+    scripts:
+
+      # 1) PROBE: collect facts + compliance + optional drift (JSON)
+      #    Example of the output should be like this:
+      #    {
+      #      "facts": {... arbitrary JSON ...},
+      #      "compliant": true,
+      #      "drift": {... optional ...}
+      #    }
+      # Required
+      probeScript:
+        inline: |
+          set -euo pipefail
+          compliant=true
+          if ! command -v nginx >/dev/null 2>&1; then
+            compliant=false
+          fi
+          version=""
+          if $compliant; then
+            version=$(nginx -v 2>&1 | cut -d'/' -f2)
+          fi
+          jq -n --argjson c $compliant --arg v "$version" \
+            '{facts:{nginx:{version:$v}},compliant:$c}'
+
+      # Ensure: install nginx
+      # Required
+      ensureScript:
+        inline: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y nginx jq
+
+      # Cleanup: remove nginx (Optional)
+      cleanupScript:
+        inline: |
+          sudo apt-get purge -y nginx || true
+
+    observe:
+      refreshPolicy: Always          # Always | IfStale
+      freshnessTTL: 60s              # ignored with Always
+      capture: stdout                # stdout | stderr | both | none
+      map:
+        - from: .nginx.version
+          to: version
+
+    # Execution environment & safety
+    execution:
+      sudo: true
+      shell: /bin/bash -euo pipefail
+      timeoutSeconds: 600
+      maxAttempts: 2              # per reconcile
+      # env is map of key, values where all instance of key is replaced
+      # by value before executing the script on the remove device
+      env:
+        INLINE_VAR: FOO
+
+    artifactPolicy:
+      capture: stdout        # stdout | stderr | both | none
+        
+      
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: UpToDate
+      lastTransitionTime: "2025-08-18T14:02:31Z"
+    - type: Synced
+      status: "True"
+      reason: ObserveSucceeded
+      lastTransitionTime: "2025-08-18T14:02:31Z"
+  atProvider:
+    endpoint:
+      host: "10.0.0.12"
+      port: 22
+      username: "ubuntu"
+    lastCheckTime: "2025-08-18T14:02:29Z"
+    lastRun:
+      time: "2025-08-18T14:02:29Z"
+      exitCode: 0
+      retryCount: 0
+    artifacts:
+      stdout: ""
+      stderr: ""
+    observed:
+      raw: {}                # the full JSON payload (optional, gated by size limit)
+      fields:                # mapped key/value facts
+        version: "1.24.0"
+        indexETag: "d41d8cd98f00b204e9800998ecf8427e"
+      digest: "sha256:..."   # hash of observe payload for cheap change detection
+      observedAt: "..."      # RFC3339
+    
 ```
 
+## Controller Logic
+
+
+### Observe
+- If no `probeScript` → Resource is not up to date, requeue for update  
+- If resource is current (not stale) → mark as **Ready**  
+- Run `probeScript`, save artifact  
+  - If failed → requeue for update  
+  - If successful → parse output (digest + field mapping)  
+    - If compliant → mark as **Ready**  
+    - If not compliant → requeue for update  
+
+### Update
+- If no `ensureScript` → reconcile error  
+- Run `ensureScript`, save artifact  
+  - If failed → reconcile error, mark as **Not Ready**  
+  - If successful → run `probeScript` again  
+    - If failed → **Ready = false**, requeue  
+    - If successful → process output  
+      - Save to `status.observed`  
+      - If compliant → **Done**  
+      - If not compliant → return empty  
+
+
+## Development
+
+```bash
+make build
+# The image is stored somewhere like
+pkg=provider-ssh-v0.0.0-21.gb69de81.xpkg
+VERSION=v2.0.0-rc6 && \
+  DIR=/home/ubuntu/provider-ssh/_output/xpkg/linux_amd64 && \
+  crossplane xpkg push -f $DIR/$pkg index.docker.io/etesami/provider-ssh:$VERSION && \
+  crossplane xpkg push -f $DIR/$pkg index.docker.io/etesami/provider-ssh:latest
+```

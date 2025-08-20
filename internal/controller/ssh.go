@@ -21,7 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/etesami/provider-ssh/internal/controller/config"
-	"github.com/etesami/provider-ssh/internal/controller/script"
+	"github.com/etesami/provider-ssh/internal/controller/sshtask"
 )
 
 // Setup creates all SSH controllers with the supplied logger and adds them to
@@ -29,7 +29,7 @@ import (
 func Setup(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
 		config.Setup,
-		script.Setup,
+		sshtask.Setup,
 	} {
 		if err := setup(mgr, o); err != nil {
 			return err

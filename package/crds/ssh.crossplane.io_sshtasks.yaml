@@ -3,8 +3,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
-  name: scripts.ssh.crossplane.io
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: sshtasks.ssh.crossplane.io
 spec:
   group: ssh.crossplane.io
   names:
@@ -12,18 +12,21 @@ spec:
     - crossplane
     - managed
     - ssh
-    kind: Script
-    listKind: ScriptList
-    plural: scripts
-    singular: script
+    kind: SSHTask
+    listKind: SSHTaskList
+    plural: sshtasks
+    singular: sshtask
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
-      name: READY
-      type: string
     - jsonPath: .status.conditions[?(@.type=='Synced')].status
       name: SYNCED
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Connected')].status
+      name: CONNECTED
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: READY
       type: string
     - jsonPath: .metadata.annotations.crossplane\.io/external-name
       name: EXTERNAL-NAME
@@ -34,7 +37,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: A Script is an example API type.
+        description: A SSHTask is an example API type.
         properties:
           apiVersion:
             description: |-
@@ -54,7 +57,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: A ScriptSpec defines the desired state of a Script.
+            description: A SSHTaskSpec defines the desired state of a SSHTask.
             properties:
               deletionPolicy:
                 default: Delete
@@ -71,34 +74,139 @@ spec:
                 - Delete
                 type: string
               forProvider:
-                description: ScriptParameters are the configurable fields of a Script.
+                description: SSHTaskParameters are the configurable fields of a SSHTask.
                 properties:
-                  cleanupScript:
-                    type: string
-                  initScript:
-                    type: string
-                  statusCheckScript:
-                    type: string
-                  sudoEnabled:
-                    type: boolean
-                  updateScript:
-                    type: string
-                  variables:
-                    items:
-                      properties:
-                        name:
-                          description: Name of the variable
+                  artifactPolicy:
+                    description: artifact capture policy.
+                    properties:
+                      capture:
+                        default: none
+                        description: Which stream(s) to capture from the remote execution.
+                        enum:
+                        - stdout
+                        - stderr
+                        - both
+                        - none
+                        type: string
+                    type: object
+                  execution:
+                    description: execution environment and safety controls.
+                    properties:
+                      env:
+                        additionalProperties:
                           type: string
-                        value:
-                          description: Value of the variable
-                          type: string
-                      required:
-                      - name
-                      - value
-                      type: object
-                    type: array
+                        description: Environment variables to set for script execution.
+                        type: object
+                      maxAttempts:
+                        default: 1
+                        description: Max attempts per reconcile (e.g., for transient
+                          failures).
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      shell:
+                        default: /bin/bash -euo pipefail
+                        description: Shell to use when running inline scripts.
+                        minLength: 1
+                        type: string
+                      sudo:
+                        default: false
+                        description: Run commands with sudo.
+                        type: boolean
+                      timeoutSeconds:
+                        default: 300
+                        description: Timeout per attempt, in seconds.
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    type: object
+                  observe:
+                    description: observation policy.
+                    properties:
+                      capture:
+                        description: 'Which output streams from probeScript to keep.
+                          Default: stdout.'
+                        enum:
+                        - stdout
+                        - stderr
+                        - both
+                        - none
+                        type: string
+                      freshnessTTL:
+                        description: 'How long an observation stays fresh (IfStale).
+                          Default: 60s.'
+                        type: string
+                      map:
+                        description: Map contains rules to extract specific fields
+                          from the probe "facts"
+                        items:
+                          properties:
+                            engine:
+                              description: Defaults to "jsonpath" if empty.
+                              enum:
+                              - jsonpath
+                              - jq
+                              type: string
+                            from:
+                              minLength: 1
+                              type: string
+                            to:
+                              minLength: 1
+                              type: string
+                          required:
+                          - from
+                          - to
+                          type: object
+                        type: array
+                      refreshPolicy:
+                        description: 'When to run probeScript. Default: IfStale.'
+                        enum:
+                        - Always
+                        - IfStale
+                        type: string
+                    type: object
+                  scripts:
+                    description: scripts to evaluate/apply/diff/cleanup the target
+                      state.
+                    properties:
+                      cleanupScript:
+                        description: cleanupScript runs on Delete; optional.
+                        properties:
+                          inline:
+                            description: Inline shell script content.
+                            minLength: 1
+                            type: string
+                        required:
+                        - inline
+                        type: object
+                      ensureScript:
+                        description: Script represents a shell script to be executed
+                          on the remote device.
+                        properties:
+                          inline:
+                            description: Inline shell script content.
+                            minLength: 1
+                            type: string
+                        required:
+                        - inline
+                        type: object
+                      probeScript:
+                        description: Script represents a shell script to be executed
+                          on the remote device.
+                        properties:
+                          inline:
+                            description: Inline shell script content.
+                            minLength: 1
+                            type: string
+                        required:
+                        - inline
+                        type: object
+                    required:
+                    - ensureScript
+                    - probeScript
+                    type: object
                 required:
-                - statusCheckScript
+                - scripts
                 type: object
               managementPolicies:
                 default:
@@ -268,21 +376,71 @@ spec:
             - forProvider
             type: object
           status:
-            description: A ScriptStatus represents the observed state of a Script.
+            description: A SSHTaskStatus represents the observed state of a SSHTask.
             properties:
               atProvider:
-                description: ScriptObservation are the observable fields of a Script.
+                description: SSHTaskObservation are the observable fields of a SSHTask.
                 properties:
-                  statusCode:
-                    type: integer
-                  stderr:
+                  artifacts:
+                    description: Artifacts holds captured stdout/stderr from the last
+                      execution.
+                    properties:
+                      stderr:
+                        type: string
+                      stdout:
+                        type: string
+                    type: object
+                  endpoint:
+                    description: Endpoint describes the target SSH endpoint that was
+                      used/observed.
+                    properties:
+                      host:
+                        type: string
+                      port:
+                        format: int32
+                        type: integer
+                      username:
+                        type: string
+                    type: object
+                  lastCheckTime:
+                    format: date-time
                     type: string
-                  stdout:
-                    type: string
-                required:
-                - statusCode
-                - stderr
-                - stdout
+                  lastRun:
+                    description: LastRunStatus describes the most recent execution
+                      attempt.
+                    properties:
+                      exitCode:
+                        format: int32
+                        type: integer
+                      retryCount:
+                        format: int32
+                        type: integer
+                      time:
+                        format: date-time
+                        type: string
+                    type: object
+                  observed:
+                    description: ObservedStatus holds the last successful probe results.
+                    properties:
+                      digest:
+                        description: Digest hash of Raw (e.g., sha256:<hex>).
+                        type: string
+                      drift:
+                        description: Drift info reported by probe.
+                        x-kubernetes-preserve-unknown-fields: true
+                      fields:
+                        additionalProperties:
+                          type: string
+                        description: Fields extracted from Raw via mapping rules.
+                        type: object
+                      observedAt:
+                        description: Time when probe completed.
+                        format: date-time
+                        type: string
+                      raw:
+                        description: Raw JSON facts from probeScript.
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
                 type: object
               conditions:
                 description: Conditions of the resource.
