@@ -343,7 +343,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalUpdate{}, errors.New(errNotSSHTask)
 	}
 	logger := klog.FromContext(ctx).WithName("[UPDATE]")
-	logger.Info("Updating scripts...")
+	logger.Info(fmt.Sprintf("Updating scripts [%s]...", c.cfg.RemoteHostIP))
 
 	if c.ssh == nil {
 		logger.Info("No SSH connection available during Update; skipping apply.")
@@ -376,7 +376,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	var runErr error
 
 	for attempt = 0; attempt < maxAttempts; attempt++ {
-		logger.Info(fmt.Sprintf("Running ensureScript (attempt %d/%d)...", attempt+1, maxAttempts))
+		logger.Info(fmt.Sprintf("Running [%s] ensureScript (attempt %d/%d)...", c.cfg.RemoteHostIP, attempt+1, maxAttempts))
 		now := metav1Now()
 		exit, out, errOut, dur, runErr = runScript2(ctx, c.ssh, ensure.Inline, execSpec, capture)
 		cr.Status.AtProvider.LastRun = &apiv1a1.LastRunStatus{
@@ -393,13 +393,13 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	if runErr != nil || exit != 0 {
-		logger.Info(fmt.Sprintf("ensureScript failed after %d attempt(s): exit=%d err=%v dur=%s", attempt+1, exit, runErr, dur))
+		logger.Info(fmt.Sprintf("ensureScript [%s] failed after %d attempt(s): exit=%d err=%v dur=%s", c.cfg.RemoteHostIP, attempt+1, exit, runErr, dur))
 		cr.SetConditions(xpv1.Unavailable(), xpv1.ReconcileError(errors.Errorf("%s: exit=%d", errRunEnsureScript, exit)))
 		return managed.ExternalUpdate{}, errors.Errorf("ensure failed: exit=%d", exit)
 	}
 
 	// Force a second probe to verify & refresh facts.
-	logger.Info("Running probeScript (post-ensure verification)...")
+	logger.Info(fmt.Sprintf("Running [%s] probeScript (post-ensure verification)...", c.cfg.RemoteHostIP))
 	postExit, postOut, postErr, _, postRunErr := runScript2(ctx, c.ssh, cr.Spec.ForProvider.Scripts.ProbeScript.Inline, execSpec, capture)
 	now := metav1Now()
 	cr.Status.AtProvider.LastRun = &apiv1a1.LastRunStatus{
@@ -413,7 +413,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	if postRunErr != nil || postExit != 0 {
-		logger.Info(fmt.Sprintf("post-ensure probe failed: exit=%d err=%v", postExit, postRunErr))
+		logger.Info(fmt.Sprintf("post-ensure probe [%s] failed: exit=%d err=%v", c.cfg.RemoteHostIP, postExit, postRunErr))
 		cr.SetConditions(xpv1.ReconcileSuccess())
 		cr.SetCondition(xpv1.TypeReady, corev1.ConditionFalse, errRunProbeScript, fmt.Sprintf("post-ensure probe failed: exit=%d, err=%v", postExit, postRunErr))
 		return managed.ExternalUpdate{}, nil
@@ -435,7 +435,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	mapObservedFields(cr, post.Facts)
 
 	if !post.Compliant {
-		logger.Info("post-ensure probe indicates not compliant; will requeue.")
+		logger.Info(fmt.Sprintf("post-ensure probe [%s] indicates not compliant; will requeue.", c.cfg.RemoteHostIP))
 		cr.SetConditions(xpv1.ReconcileSuccess())
 		cr.SetCondition(xpv1.TypeReady, corev1.ConditionFalse, errNotCompliant, "Resource is not compliant after ensureScript")
 		return managed.ExternalUpdate{}, nil
