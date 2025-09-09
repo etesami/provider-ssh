@@ -179,6 +179,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 
 	svc, err := c.newServiceFn(connectionData)
 	if err != nil {
+		logger.Info(fmt.Sprintf("Failed to connect to [%s]: %v", remoteHost, err))
 		cr.SetCondition(apiv1a1.TypeConnected, corev1.ConditionFalse, errCreateConn, err.Error())
 		cr.SetConditions(xpv1.ReconcileError(err))
 		return &external{}, nil
@@ -330,11 +331,10 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.ExternalCreation, error) {
 	// SSHTask does not create external resources; Apply happens in Update.
-	// We treat Create same as Update for first convergence.
-	logger := klog.FromContext(ctx).WithName("[CREATE]")
-	logger.Info("Calling update...")
-	_, err := c.Update(ctx, mg)
-	return managed.ExternalCreation{}, err
+	// logger := klog.FromContext(ctx).WithName("[CREATE]")
+	// logger.Info("Calling update...")
+	// _, err := c.Update(ctx, mg)
+	return managed.ExternalCreation{}, nil
 }
 
 func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
