@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+	klog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	apiv1a1 "github.com/etesami/provider-ssh/apis/v1alpha1"
 )
@@ -29,6 +30,7 @@ type config struct {
 
 
 func newSSHClient(kc *config) (*ssh.Client, error) {
+	logger := klog.FromContext(context.Background()).WithName("[SSHClient]")
 	config := &ssh.ClientConfig{}
 
 	config.User = kc.Username
@@ -55,12 +57,14 @@ func newSSHClient(kc *config) (*ssh.Client, error) {
 		// This is not recommended for production use
 		// nolint: gosec
 		knownHostsCallback = ssh.InsecureIgnoreHostKey()
+		logger.Info("No known_hosts provided, using InsecureIgnoreHostKey.")
 	}
 	config.HostKeyCallback = knownHostsCallback
 
 	switch {
 	case kc.PrivateKey != "":
 		privateKeyBytes, err := base64.StdEncoding.DecodeString(kc.PrivateKey)
+		logger.Info(fmt.Sprintf("Using private key authentication, length: %d", len(privateKeyBytes)))
 		if err != nil {
 			return nil, errors.Wrap(err, "error decoding base64 private key")
 		}
@@ -76,6 +80,7 @@ func newSSHClient(kc *config) (*ssh.Client, error) {
 		config.Auth = []ssh.AuthMethod{
 			ssh.Password(kc.Password), // Replace with your remote server password
 		}
+		logger.Info("Using password authentication.")
 	default:
 		return nil, errors.New("Private Key or Password key not found in the data.")
 	}
@@ -91,13 +96,18 @@ func newSSHClient(kc *config) (*ssh.Client, error) {
 
 	for attempts := 1; attempts <= maxAttempts; attempts++ {
 		client, err = ssh.Dial("tcp", remoteHost, config)
-		if err == nil { return client, nil } // Connection successful
-		
+		if err == nil {
+			logger.Info("SSH connection established.")
+			return client, nil
+		}
+		logger.Info(fmt.Sprintf("Failed to connect to SSH server: attempt %d", attempts))
+
 		// If this is not the last attempt, wait before retrying
 		if attempts < maxAttempts { time.Sleep(delayBetweenRetries)}
 	}
 
 	msg := fmt.Sprintf("Failed to connect to %s after %d attempts", remoteHost, maxAttempts)
+	logger.Info(msg)
 	return nil, errors.Wrap(err, msg)
 }
 

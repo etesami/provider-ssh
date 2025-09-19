@@ -208,7 +208,7 @@ status:
 make build
 # The image is stored somewhere like
 pkg=provider-ssh-v0.0.0-21.gb69de81.xpkg
-VERSION=v2.0.0-rc6 && \
+VERSION=v0.1.1-rc3 && \
   DIR=/home/ubuntu/provider-ssh/_output/xpkg/linux_amd64 && \
   crossplane xpkg push -f $DIR/$pkg index.docker.io/etesami/provider-ssh:$VERSION && \
   crossplane xpkg push -f $DIR/$pkg index.docker.io/etesami/provider-ssh:latest
