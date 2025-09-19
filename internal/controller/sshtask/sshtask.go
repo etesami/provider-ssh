@@ -389,7 +389,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		if runErr == nil && exit == 0 {
 			break
 		}
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 
 	if runErr != nil || exit != 0 {
